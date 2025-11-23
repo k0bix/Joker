@@ -1,0 +1,102 @@
+#include <Arduino.h>
+#include <esp_task_wdt.h>
+#include "TheJoker.h"
+#include "pin_config.h"
+
+#include "Arduino_GFX_Library.h"
+
+#include <SPIFFS.h>
+
+extern "C"
+{
+#include <nes/nes.h>
+#include <nofrendo.h>
+}
+
+#define FSROOT "/fs"
+
+#define FILESYSTEM_BEGIN       \
+  SPIFFS.begin(false, FSROOT); \
+  FS filesystem = SPIFFS;
+
+Arduino_DataBus *bus = new Arduino_ESP32SPI(14 /* DC */, 8 /* CS */, 36 /* SCK */, 35 /* MOSI */, -1 /* MISO */);
+Arduino_ST7789 *gfx = new Arduino_ST7789(bus, 47 /* RST */, 0 /* rotation */, true /* IPS */, 240, 240);
+
+static int16_t frame_x, frame_y;
+extern uint16_t myPalette[];
+int16_t bg_color;
+
+void setup()
+{
+  Serial.begin(115200);
+
+  Serial.setDebugOutput(true);
+  Serial.println();
+
+  for (uint8_t t = 4; t > 0; t--)
+  {
+    Serial.print(".");
+    Serial.flush();
+    delay(600);
+  }
+
+  gfx->begin();
+  bg_color = gfx->color565(24, 28, 24); // DARK DARK GREY
+
+  int length = 0;
+  char chars[6] = "%&@G8";
+
+  gfx->fillScreen(BLACK);
+  gfx->setCursor(0, 0);
+  length = strlen(image);
+
+  for (int i = 0; i < length; i++)
+    if (image[i] != ' ')
+    {
+      gfx->setTextColor(gfx->color565(200, 200, 0));
+      gfx->print(chars[random(0, 4)]);
+    }
+    else
+    {
+      gfx->setTextColor(gfx->color565(90, 90, 90));
+      gfx->print(chars[random(0, 9)]);
+    }
+
+  delay(6000);
+  // esp_wifi_deinit();
+
+  // disable Core 0 WDT
+  TaskHandle_t idle_0 = xTaskGetIdleTaskHandleForCPU(0);
+  esp_task_wdt_delete(idle_0);
+
+  FILESYSTEM_BEGIN
+  char *argv[1];
+  argv[0] = (char *)"/fs/Mario.nes";
+  nofrendo_main(1, argv);
+}
+
+void loop(void) {}
+
+extern "C" void display_init()
+{
+    frame_x = (gfx->width() - NES_SCREEN_WIDTH) / 2;
+    frame_y = 35;
+}
+
+extern "C" void display_write_frame(const uint8_t *data[])
+{
+  gfx->startWrite();
+  //bus->writeC8D16D16(0x2A, frame_x, frame_x + NES_SCREEN_WIDTH - 1);
+  //bus->writeC8D16D16(0x2B, frame_y, frame_y + NES_SCREEN_HEIGHT - 1);
+ // bus->writeCommand(0x2c);
+  gfx->writeAddrWindow(0, 0, 256, 240);
+
+
+  for (int32_t i = 0; i < 240; i++)
+  {
+    gfx->writeIndexedPixels((uint8_t *)(data[i] + 0), myPalette, 240);
+  }
+  gfx->endWrite();
+}
+
+extern "C" void display_clear() { gfx->fillScreen(bg_color); }
